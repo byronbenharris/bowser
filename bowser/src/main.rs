@@ -56,11 +56,7 @@ fn request(url:&String) -> (HashMap<String, String>, String) {
         match line {
             None => { break; },
             Some(inner) => {
-                println!("{}", inner);
-                if inner == "\r\n" { 
-                    println!("BROKE");
-                    break; 
-                }
+                if inner == "" { break; }
                 let mut split_line = inner.splitn(2, ":");
                 let header = split_line.next().unwrap();
                 let value = split_line.next().unwrap();
