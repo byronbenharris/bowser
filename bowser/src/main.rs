@@ -1,8 +1,10 @@
+use druid::widget::{Flex, Label, Scroll};
+use druid::{AppLauncher, LocalizedString, Widget, WindowDesc};
 use std::collections::HashMap;
-use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::str;
+use std::{env, vec};
 
 // cargo run http://example.com:80/index.html
 
@@ -80,31 +82,40 @@ fn request(url: &String) -> (HashMap<String, String>, String) {
         .expect("error converting [u8] to string")
         .to_string();
 
-    println!("BODY: {}", body);
-
     (headers, body)
 }
 
-fn load(url: &String) {
+fn load(url: &String) -> impl Widget<()> {
     let (_headers, body) = request(url);
-    show(body);
+    let mut body = Label::new(show(body));
+    body.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
+    let mut col = Flex::column();
+    col.add_child(body);
+    Scroll::new(col).vertical()
 }
 
-fn show(body: String) {
+fn show(body: String) -> String {
     let mut in_angle = false;
+    let mut text = String::new();
     for c in body.chars() {
         if c == '<' {
             in_angle = true;
         } else if c == '>' {
             in_angle = false;
         } else if !in_angle {
-            print!("{}", c);
+            text.push(c);
         }
     }
+    text
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let url = &args[1];
-    load(url);
+    AppLauncher::with_window(
+        WindowDesc::new(load(url))
+            .title(LocalizedString::new("Bowser Title").with_placeholder("Bowser")),
+    )
+    .launch(())
+    .expect("failed to launch gui");
 }
