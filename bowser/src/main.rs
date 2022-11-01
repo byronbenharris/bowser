@@ -3,13 +3,28 @@ use druid::{AppLauncher, LocalizedString, Widget, WindowDesc};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::str;
 use std::{env, vec};
+use std::{fs, str};
 
 // cargo run http://example.com:80/index.html
 
-fn request(url: &String) -> (HashMap<String, String>, String) {
+fn request_file(path: &str) -> (HashMap<String, String>, Vec<u8>) {
+    let mut headers = HashMap::new();
+    headers.insert("content-type".to_string(), "text/html".to_string());
+    (
+        headers,
+        fs::read(path).expect("Failed to read contents of file"),
+    )
+}
+
+fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
     // parse url into host and path
+    if url.starts_with("file://") {
+        let path = url
+            .strip_prefix("file://")
+            .expect("Unable to trim file path");
+        return request_file(path);
+    }
     assert!(url.starts_with("http://"));
     let trimmed = url.strip_prefix("http://").expect("Unable to trim url!");
     let mut split = trimmed.split('/');
@@ -78,20 +93,25 @@ fn request(url: &String) -> (HashMap<String, String>, String) {
     };
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).expect("error reading body");
-    let body = str::from_utf8(&body)
-        .expect("error converting [u8] to string")
-        .to_string();
-
     (headers, body)
 }
 
 fn load(url: &String) -> impl Widget<()> {
-    let (_headers, body) = request(url);
-    let tokens = lex(body);
-    let body_widget = layout(tokens);
-    let mut col = Flex::column();
-    col.add_child(body_widget);
-    Scroll::new(col).vertical()
+    let (headers, body) = request(url);
+    assert!(!headers.contains_key("content-type"));
+    let content_type = headers.get("content-type").unwrap();
+    match content_type.as_str() {
+        "text/html" => {
+            let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
+            let tokens = lex(body_str.to_string());
+            let body_widget = layout(tokens);
+            let mut col = Flex::column();
+            col.add_child(body_widget);
+            Scroll::new(col).vertical()
+        }
+        // "text"
+        _ => Scroll::new(Flex::column().with_child(Label::new("Unknown content type"))),
+    }
 }
 
 enum Token {
