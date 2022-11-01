@@ -1,5 +1,6 @@
-use druid::widget::{Flex, Label, Scroll};
-use druid::{AppLauncher, LocalizedString, Widget, WindowDesc};
+use druid::piet::InterpolationMode;
+use druid::widget::{FillStrat, Flex, Image, Label, Scroll};
+use druid::{AppLauncher, ImageBuf, LocalizedString, Widget, WindowDesc};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -27,7 +28,7 @@ fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
     }
     assert!(url.starts_with("http://"));
     let trimmed = url.strip_prefix("http://").expect("Unable to trim url!");
-    let mut split = trimmed.split('/');
+    let mut split = trimmed.splitn(2, '/');
     let host = split.next().expect("Unable to find host");
     let path = format!("/{}", split.next().expect("Unable to find path"));
     println!("HOST: {}", host);
@@ -98,20 +99,32 @@ fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
 
 fn load(url: &String) -> impl Widget<()> {
     let (headers, body) = request(url);
-    assert!(!headers.contains_key("content-type"));
-    let content_type = headers.get("content-type").unwrap();
-    match content_type.as_str() {
+    assert!(headers.contains_key("content-type"));
+    let content_type = headers
+        .get("content-type")
+        .unwrap()
+        .splitn(2, ';')
+        .next()
+        .unwrap();
+    let mut col = Flex::column();
+    match content_type {
         "text/html" => {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
             let tokens = lex(body_str.to_string());
             let body_widget = layout(tokens);
-            let mut col = Flex::column();
             col.add_child(body_widget);
-            Scroll::new(col).vertical()
         }
-        // "text"
-        _ => Scroll::new(Flex::column().with_child(Label::new("Unknown content type"))),
+        "image/png" => {
+            let img_data =
+                ImageBuf::from_data(&body).expect("Failed to store bytes in image buffer");
+            let img = Image::new(img_data)
+                .fill_mode(FillStrat::Fill)
+                .interpolation_mode(InterpolationMode::Bilinear);
+            col.add_child(img);
+        }
+        _ => col.add_child(Label::new("Unknown content type")),
     }
+    Scroll::new(col).vertical()
 }
 
 enum Token {
