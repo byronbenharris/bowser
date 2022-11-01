@@ -87,26 +87,53 @@ fn request(url: &String) -> (HashMap<String, String>, String) {
 
 fn load(url: &String) -> impl Widget<()> {
     let (_headers, body) = request(url);
-    let mut body = Label::new(show(body));
-    body.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
+    let tokens = lex(body);
+    let body_widget = layout(tokens);
     let mut col = Flex::column();
-    col.add_child(body);
+    col.add_child(body_widget);
     Scroll::new(col).vertical()
 }
 
-fn show(body: String) -> String {
-    let mut in_angle = false;
+enum Token {
+    Text(String),
+    Tag(String),
+}
+
+fn layout(tokens: Vec<Token>) -> impl Widget<()> {
+    let mut body_text = String::new();
+    for tok in tokens {
+        if let Token::Text(text) = tok {
+            body_text.push_str(&text);
+        }
+    }
+    let mut body = Label::new(body_text);
+    body.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
+    body
+}
+
+fn lex(body: String) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut in_tag = false;
     let mut text = String::new();
     for c in body.chars() {
         if c == '<' {
-            in_angle = true;
+            in_tag = true;
+            if !text.is_empty() {
+                out.push(Token::Text(text));
+                text = String::new();
+            }
         } else if c == '>' {
-            in_angle = false;
-        } else if !in_angle {
+            in_tag = false;
+            out.push(Token::Tag(text));
+            text = String::new();
+        } else {
             text.push(c);
         }
     }
-    text
+    if !in_tag && !text.is_empty() {
+        out.push(Token::Text(text));
+    }
+    out
 }
 
 fn main() {
