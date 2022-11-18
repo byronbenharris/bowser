@@ -7,42 +7,36 @@ use std::net::TcpStream;
 use std::{env, vec};
 use std::{fs, str};
 
-// cargo run http://example.com:80/index.html
-
 fn request_file(path: &str) -> (HashMap<String, String>, Vec<u8>) {
     let mut headers = HashMap::new();
     headers.insert("content-type".to_string(), "text/html".to_string());
-    (
+    return (
         headers,
         fs::read(path).expect("Failed to read contents of file"),
-    )
+    );
 }
 
-fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
-    // parse url into host and path
-    if url.starts_with("file://") {
-        let path = url
-            .strip_prefix("file://")
-            .expect("Unable to trim file path");
-        return request_file(path);
-    }
-    assert!(url.starts_with("http://"));
-    let trimmed = url.strip_prefix("http://").expect("Unable to trim url!");
-    let mut split = trimmed.splitn(2, '/');
+fn request_web(url: &str, secure: bool) -> (HashMap<String, String>, Vec<u8>) {
+
+    let mut split = url.splitn(2, '/');
     let host = split.next().expect("Unable to find host");
     let path = format!("/{}", split.next().expect("Unable to find path"));
+    let port  = if secure == false { 80 } else { 443 };
+
     println!("HOST: {}", host);
     println!("PATH: {}", path);
 
     // open the TCP socket
-    let mut stream = TcpStream::connect(host).expect("Failed to create socket!");
+    let mut stream = TcpStream::connect(format!("{}:{}", host, port)).expect("Failed to create socket!");
     println!("Opened Socket");
 
     // prepare HTTP request
     let mut http_req = String::new();
     http_req.push_str(format!("GET {} HTTP/1.1\r\n", path).as_str());
-    http_req.push_str(format!("Host: {}\r\n\r\n", host).as_str());
-
+    http_req.push_str(format!("Host: {}:{}\r\n", host, port).as_str());
+    http_req.push_str("User-Agent: bowser-nom-nom-nom\r\n");
+    http_req.push_str("Connection: close\r\n\r\n");
+    
     println!("{}", http_req);
 
     // send HTTP request as bytes via TCP stream
@@ -94,7 +88,23 @@ fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
     };
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).expect("error reading body");
-    (headers, body)
+    return (headers, body);
+}
+
+fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
+
+    let mut scheme_split = url.splitn(2, "://");
+    let scheme = scheme_split.next().expect("No scheme provided in url!");
+    let content = scheme_split.next().expect("No content provided in url!");
+
+    match scheme {
+        "http" => { return request_web(content, false); },
+        "https" => { return request_web(content, true); },
+        "file" => { return request_file(content); },
+        "view-source" => { panic!("Scheme 'view-source' is not yet implemented!");  }, // TODO
+        "data" => { panic!("Scheme 'data' is not yet implemented!"); }, // TODO
+        _ => { panic!("Unknown scheme provided in request url!"); }
+    }
 }
 
 fn load(url: &String) -> impl Widget<()> {
@@ -141,7 +151,7 @@ fn layout(tokens: Vec<Token>) -> impl Widget<()> {
     }
     let mut body = Label::new(body_text);
     body.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
-    body
+    return body;
 }
 
 fn lex(body: String) -> Vec<Token> {
@@ -166,15 +176,18 @@ fn lex(body: String) -> Vec<Token> {
     if !in_tag && !text.is_empty() {
         out.push(Token::Text(text));
     }
-    out
+    return out;
 }
 
 fn main() {
+
     let args: Vec<String> = env::args().collect();
     let url = &args[1];
+
     AppLauncher::with_window(
         WindowDesc::new(load(url))
-            .title(LocalizedString::new("Bowser Title").with_placeholder("Bowser")),
+            .title(LocalizedString::new("Bowser Title")
+            .with_placeholder("Bowser")),
     )
     .launch(())
     .expect("failed to launch gui");
