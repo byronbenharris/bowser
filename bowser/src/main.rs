@@ -1,11 +1,70 @@
 use druid::piet::InterpolationMode;
-use druid::widget::{FillStrat, Flex, Image, Label, Scroll};
-use druid::{AppLauncher, ImageBuf, LocalizedString, Widget, WindowDesc};
+use druid::widget::{
+    FillStrat, 
+    Flex, 
+    Image, 
+    Label, 
+    Scroll
+};
+
+use druid::{
+    AppLauncher, 
+    FontDescriptor, 
+    FontFamily, 
+    FontWeight, 
+    FontStyle, 
+    ImageBuf, 
+    LocalizedString, 
+    Widget, 
+    WindowDesc
+};
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::{env, vec};
 use std::{fs, str};
+
+#[derive(Debug)]
+enum Node {
+    Text(Text),
+    Element(Element),
+}
+
+#[derive(Debug)]
+struct Element {
+    tag: String,
+    attributes: HashMap<String, String>,
+    parent: Option<Box<Element>>,
+    children: Vec<Box<Node>>
+}
+
+#[derive(Debug)]
+struct Text {
+    text: String,
+    parent: Box<Element>,
+}
+
+#[derive(Debug)]
+struct Style {
+    size: f64, 
+    bold: bool, 
+    italic: bool,
+}
+
+const VOID_TAGS: [&str; 14] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr"
+];
+
+const BLOCK_ELEMENTS: [&str; 37] = [
+    "html", "body", "article", "section", "nav", "aside",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
+    "footer", "address", "p", "hr", "pre", "blockquote",
+    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
+    "figcaption", "main", "div", "table", "form", "fieldset",
+    "legend", "details", "summary"
+];
 
 fn request_file(path: &str) -> (HashMap<String, String>, Vec<u8>) {
     let mut headers = HashMap::new();
@@ -57,14 +116,13 @@ fn request_web(url: &str, secure: bool) -> (HashMap<String, String>, Vec<u8>) {
     status_line_split.next();
     assert_eq!(Some("200"), status_line_split.next());
 
+    // Read the headers
     let mut headers = HashMap::new();
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("error reading header");
         match line.as_str() {
-            "\r\n" => {
-                break;
-            }
+            "\r\n" => { break; }
             data => {
                 let mut split_line = data.splitn(2, ":");
                 let header = split_line.next().unwrap();
@@ -75,20 +133,32 @@ fn request_web(url: &str, secure: bool) -> (HashMap<String, String>, Vec<u8>) {
     }
 
     println!("HEADERS: {:#?}", headers);
-
     assert!(!headers.contains_key("transfer-encoding"));
     assert!(!headers.contains_key("content-encoding"));
 
+    // Read the body
     let length = match headers.get("content-length") {
+        Some(x) => x.parse::<usize>().expect("error parsing content length"),
         None => {
             println!("no body content!");
             0
         }
-        Some(x) => x.parse::<usize>().expect("error parsing content length"),
     };
+
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).expect("error reading body");
+
     return (headers, body);
+}
+
+fn data(content: &str) -> (HashMap<String, String>, Vec<u8>) {
+    let mut headers = HashMap::new();
+    headers.insert("content-type".to_string(), "text/html".to_string());
+    return (headers, content.as_bytes().to_vec());
+}
+
+fn view_source(_url: &str) -> (HashMap<String, String>, Vec<u8>) {
+    panic!("Scheme 'view-source' is not yet implemented!");
 }
 
 fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
@@ -98,11 +168,11 @@ fn request(url: &String) -> (HashMap<String, String>, Vec<u8>) {
     let content = scheme_split.next().expect("No content provided in url!");
 
     match scheme {
+        "data" => { return data(content); },
+        "file" => { return request_file(content); },
         "http" => { return request_web(content, false); },
         "https" => { return request_web(content, true); },
-        "file" => { return request_file(content); },
-        "view-source" => { panic!("Scheme 'view-source' is not yet implemented!");  }, // TODO
-        "data" => { panic!("Scheme 'data' is not yet implemented!"); }, // TODO
+        "view-source" => { return view_source(content); },
         _ => { panic!("Unknown scheme provided in request url!"); }
     }
 }
@@ -120,10 +190,14 @@ fn load(url: &String) -> impl Widget<()> {
     match content_type {
         "text/html" => {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
-            let tokens = lex(body_str.to_string());
-            let body_widget = layout(tokens);
-            col.add_child(body_widget);
-        }
+            let dom_root = parse(body_str.to_string());
+            print_tree(&dom_root, 0);
+            let body_widgets = recurse(
+                &dom_root, &Style { size: 16.0, bold: false, italic: false });
+            for widget in body_widgets {
+                col.add_child(widget);
+            }
+        },
         "image/png" => {
             let img_data =
                 ImageBuf::from_data(&body).expect("Failed to store bytes in image buffer");
@@ -131,59 +205,190 @@ fn load(url: &String) -> impl Widget<()> {
                 .fill_mode(FillStrat::Fill)
                 .interpolation_mode(InterpolationMode::Bilinear);
             col.add_child(img);
-        }
+        },
         _ => col.add_child(Label::new("Unknown content type")),
     }
     Scroll::new(col).vertical()
 }
 
-enum Token {
-    Text(String),
-    Tag(String),
+fn get_font(style: &Style) -> FontDescriptor {
+    return FontDescriptor::new(FontFamily::SERIF)
+        .with_size(style.size)
+        .with_weight(match style.bold {
+            true => FontWeight::BOLD,
+            false => FontWeight::REGULAR,
+        })
+        .with_style(match style.italic {
+            true => FontStyle::Italic,
+            false => FontStyle::Regular,
+        });
 }
 
-fn layout(tokens: Vec<Token>) -> impl Widget<()> {
-    let mut body_text = String::new();
-    for tok in tokens {
-        if let Token::Text(text) = tok {
-            body_text.push_str(&text);
+fn open_tag(tag: &String, style: &Style) -> Style {
+    match tag.as_str() {
+        "b" => { return Style { bold: true, ..(*style) } },
+        "i" => { return Style { italic: true, ..(*style) } },
+        "bigger" => { return Style { size: style.size + 2.0, ..(*style) } },
+        "smaller" => { return Style { size: style.size - 2.0, ..(*style) } },
+        _ => { return Style{ ..(*style) }; }
+    }
+}
+
+fn label(text: &String, style: &Style) -> impl Widget<()> {
+    let font = get_font(style);
+    let mut label = Label::new(text.as_str()).with_font(font);
+    label.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
+    return label;
+}
+
+fn recurse(node: &Node, style: &Style) -> Vec<impl Widget<()>> {
+    match node {
+        Node::Text(text) => {
+            let mut body = Vec::new();
+            body.push(label(&text.text, style)); 
+            return body;
+        },
+        Node::Element(elem) => { 
+            let style = open_tag(&elem.tag, style);
+            let mut body = Vec::new();
+            for child in &(*elem).children {
+                for label in recurse(&*child, &style) {
+                    body.push(label);
+                }
+            }
+            return body;
         }
     }
-    let mut body = Label::new(body_text);
-    body.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
-    return body;
 }
 
-fn lex(body: String) -> Vec<Token> {
-    let mut out = Vec::new();
+fn create_text(parent: &Element, text: String) -> Option<Text> {
+    if text.trim().is_empty() { return None; }
+    return Some(Text { text, parent: Box::new(*parent) });
+    // parent.children.push(Box::new(Node::Text(text)));
+}
+
+fn create_element(parent: &mut Element, tag: &str) -> Option<Element> {
+    
+    let (tag, attributes) = get_attributes(tag);
+    
+    if tag.starts_with("!") {
+        return None;
+    }
+
+    let element = Element { tag: tag.to_string(), attributes,
+        parent: Some(Box::new(*parent)), children: Vec::new() };
+    parent.children.push(Box::new(Node::Element(element)));
+
+    return Some(Box::new(element));
+}
+
+fn get_attributes(text: &str) -> (String, HashMap<String, String>) {
+    
+    let mut parts = text.split(char::is_whitespace);
+    let tag = parts.next().unwrap().to_lowercase();
+    
+    let mut attributes = HashMap::new();
+    while let Some(attr_pair) = parts.next() {
+        if attr_pair.contains("=") {
+            
+            let mut attr_split = attr_pair.splitn(1, "=");
+            let key = attr_split.next().unwrap().to_string();
+            let mut value = attr_split.next().unwrap().to_string();
+            
+            if value.len() > 2 && 
+                (value.starts_with("'") || value.starts_with("\"")) {
+                    value = value[1..value.len()-1].to_owned();
+            }
+            
+            attributes.insert(key.to_lowercase(), value);
+        
+        } else {
+            attributes.insert(attr_pair.to_lowercase(), String::new());
+        }
+    }
+
+    return (tag, attributes);
+}
+
+fn print_tree(node: &Node, indent: i32) {
+
+    for _ in 0..indent { 
+        print!(" "); 
+    }
+
+    match node {
+        Node::Text(text) => { 
+            println!("{}", text.text);
+        },
+        Node::Element(elem) => { 
+            println!("<{}>", elem.tag); 
+            for child in &elem.children {
+                print_tree(child, indent + 2);
+            }
+            println!("</{}>", elem.tag); 
+        }
+    }
+}
+
+fn parse(body: String) -> Node {
+
+    let mut root = Element { 
+        tag: "root".to_string(),
+        attributes: HashMap::new(),
+        parent: None, 
+        children: Vec::new(),
+    };
+
     let mut in_tag = false;
     let mut text = String::new();
+    let mut tag_queue:Vec<Box<Element>> = Vec::new();
+    tag_queue.push(Box::new(root));
+    
     for c in body.chars() {
         if c == '<' {
-            in_tag = true;
             if !text.is_empty() {
-                out.push(Token::Text(text));
-                text = String::new();
+                let child = create_text(&mut *tag_queue.last().unwrap(), text);
             }
+            in_tag = true;
+            text = String::new();
         } else if c == '>' {
+            // if !VOID_TAGS.contains(&tag.as_str()) {
+            //     return None;
+            // } 
+            
+            // return Some(Box::new(element));
+            if !text.starts_with("/") { // 
+                if let Some(new_tag) = create_element(
+                    &mut tag_queue.last().unwrap(), text.as_str()
+                ) {
+                    tag_queue.push(new_tag);
+                } 
+            } else {
+                let open_tag = tag_queue.last().unwrap().tag;
+                let close_tag = text.split(' ').next().unwrap().get(1..).unwrap().to_string();
+                if open_tag == close_tag {
+                    panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
+                        open_tag, close_tag);
+                }
+                tag_queue.pop();
+            }
             in_tag = false;
-            out.push(Token::Tag(text));
             text = String::new();
         } else {
             text.push(c);
         }
     }
+
     if !in_tag && !text.is_empty() {
-        out.push(Token::Text(text));
+        add_text(&mut tag_queue.last().unwrap(), text);
     }
-    return out;
+
+    return Node::Element(root);
 }
 
 fn main() {
-
     let args: Vec<String> = env::args().collect();
     let url = &args[1];
-
     AppLauncher::with_window(
         WindowDesc::new(load(url))
             .title(LocalizedString::new("Bowser Title")
