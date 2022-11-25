@@ -39,10 +39,25 @@ struct Element {
     children: Vec<Box<Node>>
 }
 
+impl Element {
+    fn add_parent(&mut self, parent: Box<Element>) {
+        self.parent = Some(parent);
+    }
+    fn add_child(&mut self, child: Box<Node>) {
+        self.children.push(child);
+    }
+}
+
 #[derive(Debug)]
 struct Text {
     text: String,
-    parent: Box<Element>,
+    parent: Option<Box<Element>>,
+}
+
+impl Text {
+    fn add_parent(&mut self, parent: Box<Element>) {
+        self.parent = Some(parent);
+    }
 }
 
 #[derive(Debug)]
@@ -261,28 +276,33 @@ fn recurse(node: &Node, style: &Style) -> Vec<impl Widget<()>> {
     }
 }
 
-fn create_text(parent: &Element, text: String) -> Option<Text> {
-    if text.trim().is_empty() { return None; }
-    return Some(Text { text, parent: Box::new(*parent) });
-    // parent.children.push(Box::new(Node::Text(text)));
-}
+// fn create_text(parent: &mut Element, text: String) {
+//     if text.trim().is_empty() { return; }
+//     let text = Text { text, parent: Some(Box::new(*parent)) };
+//     parent.children.push(Box::new(Node::Text(text)));
+// }
 
-fn create_element(parent: &mut Element, tag: &str) -> Option<Element> {
+// fn create_element(parent: &mut Element, tag: String) -> Option<Element> {
     
-    let (tag, attributes) = get_attributes(tag);
+//     let (tag, attributes) = get_attributes(tag);
     
-    if tag.starts_with("!") {
-        return None;
-    }
+//     if tag.starts_with("!") {
+//         return None;
+//     }
 
-    let element = Element { tag: tag.to_string(), attributes,
-        parent: Some(Box::new(*parent)), children: Vec::new() };
-    parent.children.push(Box::new(Node::Element(element)));
+//     // TODO: ARE THESE POINTERS SAFE?!?
+//     let element = Element { tag: tag.to_string(), attributes,
+//         parent: Some(Box::new(*parent)), children: Vec::new() };
+//     parent.children.push(Box::new(Node::Element(element)));
 
-    return Some(Box::new(element));
-}
+//     if VOID_TAGS.contains(&tag.as_str()) {
+//         return None;
+//     } 
 
-fn get_attributes(text: &str) -> (String, HashMap<String, String>) {
+//     return Some(element);
+// }
+
+fn get_attributes(text: String) -> (String, HashMap<String, String>) {
     
     let mut parts = text.split(char::is_whitespace);
     let tag = parts.next().unwrap().to_lowercase();
@@ -332,7 +352,7 @@ fn print_tree(node: &Node, indent: i32) {
 
 fn parse(body: String) -> Node {
 
-    let mut root = Element { 
+    let root = &Element { 
         tag: "root".to_string(),
         attributes: HashMap::new(),
         parent: None, 
@@ -340,50 +360,45 @@ fn parse(body: String) -> Node {
     };
 
     let mut in_tag = false;
-    let mut text = String::new();
-    let mut tag_queue:Vec<Box<Element>> = Vec::new();
-    tag_queue.push(Box::new(root));
+    let mut inner_text = String::new();
+    let mut parent_queue:Vec<Box<Element>> = Vec::new();
+    parent_queue.push(Box::new(*root));
     
     for c in body.chars() {
         if c == '<' {
-            if !text.is_empty() {
-                let child = create_text(&mut *tag_queue.last().unwrap(), text);
+            if !inner_text.is_empty() {
+                // create_text((*tag_queue.last().unwrap()).as_mut(), inner_text);
             }
             in_tag = true;
-            text = String::new();
+            inner_text = String::new();
         } else if c == '>' {
-            // if !VOID_TAGS.contains(&tag.as_str()) {
-            //     return None;
-            // } 
-            
-            // return Some(Box::new(element));
-            if !text.starts_with("/") { // 
-                if let Some(new_tag) = create_element(
-                    &mut tag_queue.last().unwrap(), text.as_str()
-                ) {
-                    tag_queue.push(new_tag);
-                } 
+            if !inner_text.starts_with("/") {
+                // if let Some(new_tag) = create_element(
+                //     (*tag_queue.last().unwrap()).as_mut(), inner_text
+                // ) {
+                //     tag_queue.push(Box::new(new_tag));
+                // }
             } else {
-                let open_tag = tag_queue.last().unwrap().tag;
-                let close_tag = text.split(' ').next().unwrap().get(1..).unwrap().to_string();
+                let open_tag = parent_queue.last().unwrap().tag;
+                let close_tag = inner_text.split(' ').next().unwrap().get(1..).unwrap().to_string();
                 if open_tag == close_tag {
                     panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
                         open_tag, close_tag);
                 }
-                tag_queue.pop();
+                parent_queue.pop();
             }
             in_tag = false;
-            text = String::new();
+            inner_text = String::new();
         } else {
-            text.push(c);
+            inner_text.push(c);
         }
     }
 
-    if !in_tag && !text.is_empty() {
-        add_text(&mut tag_queue.last().unwrap(), text);
+    if !in_tag && !inner_text.is_empty() {
+        // create_text((*tag_queue.last().unwrap()).as_mut(), inner_text);
     }
 
-    return Node::Element(root);
+    return Node::Element(*root);
 }
 
 fn main() {
