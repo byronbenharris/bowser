@@ -19,6 +19,7 @@ use druid::{
     WindowDesc
 };
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -36,18 +37,18 @@ enum Node {
 struct Element {
     tag: String,
     attributes: HashMap<String, String>,
-    children: Vec<Rc<Node>>
+    children: RefCell<Vec<Rc<Node>>>
 }
 
 impl Element {
     fn new(tag: String) -> Option<Element> {
         if tag.starts_with("!") { return None; }
         let (tag, attributes) = get_attributes(tag);
-        return Some(Element { tag, attributes, children: vec!() });
+        return Some(Element { tag, attributes, children: RefCell::new(vec!()) });
     }
 
-    fn add_child(&mut self, child: Rc<Node>) {
-        self.children.push(child);
+    fn add_child(&mut self, child: &Rc<Node>) {
+        self.children.borrow_mut().push(Rc::clone(&child));
     }
 }
 
@@ -208,10 +209,10 @@ fn load(url: &String) -> impl Widget<()> {
     match content_type {
         "text/html" => {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
-            let root = Rc::new(Node::Element(parse(&body_str.to_string())));
+            let root = parse(&body_str.to_string());
             print_tree(Rc::clone(&root), 0);
             let body_widgets = recurse(
-                Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
+                &Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
             for widget in body_widgets {
                 col.add_child(widget);
             }
@@ -259,24 +260,26 @@ fn label(text: &String, style: &Style) -> impl Widget<()> {
     return label;
 }
 
-fn recurse(node: Rc<Node>, style: &Style) -> Vec<impl Widget<()>> {
-    match &*node {
-        Node::Text(text) => {
-            let mut body = Vec::new();
-            body.push(label(&text.text, style)); 
-            return body;
-        },
-        Node::Element(elem) => { 
-            let style = open_tag(&elem.tag, style);
-            let mut body = Vec::new();
-            for child in &elem.children[..] {
-                for label in recurse(Rc::clone(child), &style) {
-                    body.push(label);
-                }
-            }
-            return body;
-        }
-    }
+fn recurse(node: &Rc<Node>, style: &Style) -> Vec<impl Widget<()>> {
+    let body: Vec<Label<()>> = Vec::new();
+    return body;
+    // match &*node {
+    //     Node::Text(text) => {
+    //         let mut body = Vec::new();
+    //         body.push(label(&text.text, style)); 
+    //         return body;
+    //     },
+    //     Node::Element(elem) => { 
+    //         let style = open_tag(&elem.tag, style);
+    //         let mut body = Vec::new();
+    //         // for child in &elem.children[..] {
+    //         //     for label in recurse(Rc::clone(child), &style) {
+    //         //         body.push(label);
+    //         //     }
+    //         // }
+    //         return body;
+    //     }
+    // }
 }
 
 
@@ -315,52 +318,53 @@ fn print_tree(node: Rc<Node>, indent: i32) {
         print!(" "); 
     }
 
-    match node {
-        Node::Text(text) => { 
-            println!("{}", text.text);
-        },
-        Node::Element(elem) => { 
-            println!("<{}>", elem.tag); 
-            for child in elem.children {
-                print_tree(child, indent + 2);
-            }
-            println!("</{}>", elem.tag); 
-        }
-    }
+    // match *node {
+    //     Node::Text(text) => { 
+    //         println!("{}", text.text);
+    //     },
+    //     Node::Element(elem) => { 
+    //         println!("<{}>", elem.tag); 
+    //         // for child in elem.children {
+    //         //     print_tree(child, indent + 2);
+    //         // }
+    //         println!("</{}>", elem.tag); 
+    //     }
+    // }
 }
 
-fn parse<'a>(body: &'a String) -> Element {
+fn parse(body: &String) -> Rc<Node> {
 
-    let Some(root) = Element::new(String::from("root"));
-    let root_ptr = Rc::new(root);
-    let mut parent_queue:Vec<Rc<Element>> = Vec::new();
-    parent_queue.push(Rc::clone(&root_ptr));
+    let root = Element::new(String::from("root")).unwrap();
+    let mut parent_queue:Vec<Rc<RefCell<Element>>> = Vec::new();
+    parent_queue.push(Rc::new(RefCell::new(root)));
 
     let mut in_tag = false;
     let mut inner_text = String::new();
     for c in body.chars() {
         if c == '<' {
             if let Some(text) = Text::new(inner_text) {
-                parent_queue.last().unwrap().add_child(Rc::new(Node::Text(text)));
+                parent_queue.last().unwrap().borrow_mut().add_child(&Rc::new(Node::Text(text)));
             }
             in_tag = true;
             inner_text = String::new();
         } else if c == '>' {
             if !inner_text.starts_with("/") {
                 if let Some(elem) = Element::new(inner_text) {
-                    let elem_ptr = Rc::new(Node::Element(elem));
                     let parent = parent_queue.last().unwrap();
-                    parent.add_child(Rc::new(Node::Element(elem)));
+                    parent.borrow_mut().add_child(&Rc::new(Node::Element(elem)));
                     if !VOID_TAGS.contains(&elem.tag.as_str()) {
-                        parent_queue.push(Rc::new(elem));
+                        parent_queue.push(Rc::new(RefCell::new(elem)));
                     }
                 }
             } else {
-                let open_tag = &parent_queue.last().unwrap().tag;
-                let close_tag = &inner_text.split(' ').next().unwrap().get(1..).unwrap().to_string();
-                if open_tag == close_tag {
-                    panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
-                        open_tag, close_tag);
+                {
+                    let parent = parent_queue.last().unwrap().borrow();
+                    let open_tag = parent.tag.as_str();
+                    let close_tag = inner_text.split(' ').next().unwrap().get(1..).unwrap();
+                    if open_tag == close_tag {
+                        panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
+                            open_tag, close_tag);
+                    }
                 }
                 parent_queue.pop();
             }
@@ -376,10 +380,10 @@ fn parse<'a>(body: &'a String) -> Element {
     }
 
     if let Some(text) = Text::new(inner_text) {
-        parent_queue.last().unwrap().add_child(Rc::new(Node::Text(text)));
+        parent_queue.last().unwrap().borrow_mut().add_child(&Rc::new(Node::Text(text)));
     }
 
-    return root;
+    return Rc::new(Node::Element(root));
 }
 
 fn main() {
