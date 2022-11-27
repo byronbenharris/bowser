@@ -24,6 +24,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::{env, vec};
 use std::{fs, str};
+use std::rc::Rc;
 
 #[derive(Debug)]
 enum Node {
@@ -35,15 +36,17 @@ enum Node {
 struct Element {
     tag: String,
     attributes: HashMap<String, String>,
-    parent: Option<Box<Element>>,
-    children: Vec<Box<Node>>
+    children: Vec<Rc<Node>>
 }
 
 impl Element {
-    fn add_parent(&mut self, parent: Box<Element>) {
-        self.parent = Some(parent);
+    fn new(tag: String) -> Option<Element> {
+        if tag.starts_with("!") { return None; }
+        let (tag, attributes) = get_attributes(tag);
+        return Some(Element { tag, attributes, children: vec!() });
     }
-    fn add_child(&mut self, child: Box<Node>) {
+
+    fn add_child(&mut self, child: Rc<Node>) {
         self.children.push(child);
     }
 }
@@ -51,12 +54,12 @@ impl Element {
 #[derive(Debug)]
 struct Text {
     text: String,
-    parent: Option<Box<Element>>,
 }
 
 impl Text {
-    fn add_parent(&mut self, parent: Box<Element>) {
-        self.parent = Some(parent);
+    fn new(text: String) -> Option<Text> {
+        if text.trim().is_empty() { return None; }
+        return Some(Text { text });
     }
 }
 
@@ -205,10 +208,10 @@ fn load(url: &String) -> impl Widget<()> {
     match content_type {
         "text/html" => {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
-            let dom_root = parse(body_str.to_string());
-            print_tree(&dom_root, 0);
+            let root = Rc::new(Node::Element(parse(&body_str.to_string())));
+            print_tree(Rc::clone(&root), 0);
             let body_widgets = recurse(
-                &dom_root, &Style { size: 16.0, bold: false, italic: false });
+                Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
             for widget in body_widgets {
                 col.add_child(widget);
             }
@@ -256,8 +259,8 @@ fn label(text: &String, style: &Style) -> impl Widget<()> {
     return label;
 }
 
-fn recurse(node: &Node, style: &Style) -> Vec<impl Widget<()>> {
-    match node {
+fn recurse(node: Rc<Node>, style: &Style) -> Vec<impl Widget<()>> {
+    match &*node {
         Node::Text(text) => {
             let mut body = Vec::new();
             body.push(label(&text.text, style)); 
@@ -266,8 +269,8 @@ fn recurse(node: &Node, style: &Style) -> Vec<impl Widget<()>> {
         Node::Element(elem) => { 
             let style = open_tag(&elem.tag, style);
             let mut body = Vec::new();
-            for child in &(*elem).children {
-                for label in recurse(&*child, &style) {
+            for child in &elem.children[..] {
+                for label in recurse(Rc::clone(child), &style) {
                     body.push(label);
                 }
             }
@@ -276,31 +279,7 @@ fn recurse(node: &Node, style: &Style) -> Vec<impl Widget<()>> {
     }
 }
 
-// fn create_text(parent: &mut Element, text: String) {
-//     if text.trim().is_empty() { return; }
-//     let text = Text { text, parent: Some(Box::new(*parent)) };
-//     parent.children.push(Box::new(Node::Text(text)));
-// }
 
-// fn create_element(parent: &mut Element, tag: String) -> Option<Element> {
-    
-//     let (tag, attributes) = get_attributes(tag);
-    
-//     if tag.starts_with("!") {
-//         return None;
-//     }
-
-//     // TODO: ARE THESE POINTERS SAFE?!?
-//     let element = Element { tag: tag.to_string(), attributes,
-//         parent: Some(Box::new(*parent)), children: Vec::new() };
-//     parent.children.push(Box::new(Node::Element(element)));
-
-//     if VOID_TAGS.contains(&tag.as_str()) {
-//         return None;
-//     } 
-
-//     return Some(element);
-// }
 
 fn get_attributes(text: String) -> (String, HashMap<String, String>) {
     
@@ -330,7 +309,7 @@ fn get_attributes(text: String) -> (String, HashMap<String, String>) {
     return (tag, attributes);
 }
 
-fn print_tree(node: &Node, indent: i32) {
+fn print_tree(node: Rc<Node>, indent: i32) {
 
     for _ in 0..indent { 
         print!(" "); 
@@ -342,7 +321,7 @@ fn print_tree(node: &Node, indent: i32) {
         },
         Node::Element(elem) => { 
             println!("<{}>", elem.tag); 
-            for child in &elem.children {
+            for child in elem.children {
                 print_tree(child, indent + 2);
             }
             println!("</{}>", elem.tag); 
@@ -350,37 +329,35 @@ fn print_tree(node: &Node, indent: i32) {
     }
 }
 
-fn parse(body: String) -> Node {
+fn parse<'a>(body: &'a String) -> Element {
 
-    let root = &Element { 
-        tag: "root".to_string(),
-        attributes: HashMap::new(),
-        parent: None, 
-        children: Vec::new(),
-    };
+    let Some(root) = Element::new(String::from("root"));
+    let root_ptr = Rc::new(root);
+    let mut parent_queue:Vec<Rc<Element>> = Vec::new();
+    parent_queue.push(Rc::clone(&root_ptr));
 
     let mut in_tag = false;
     let mut inner_text = String::new();
-    let mut parent_queue:Vec<Box<Element>> = Vec::new();
-    parent_queue.push(Box::new(*root));
-    
     for c in body.chars() {
         if c == '<' {
-            if !inner_text.is_empty() {
-                // create_text((*tag_queue.last().unwrap()).as_mut(), inner_text);
+            if let Some(text) = Text::new(inner_text) {
+                parent_queue.last().unwrap().add_child(Rc::new(Node::Text(text)));
             }
             in_tag = true;
             inner_text = String::new();
         } else if c == '>' {
             if !inner_text.starts_with("/") {
-                // if let Some(new_tag) = create_element(
-                //     (*tag_queue.last().unwrap()).as_mut(), inner_text
-                // ) {
-                //     tag_queue.push(Box::new(new_tag));
-                // }
+                if let Some(elem) = Element::new(inner_text) {
+                    let elem_ptr = Rc::new(Node::Element(elem));
+                    let parent = parent_queue.last().unwrap();
+                    parent.add_child(Rc::new(Node::Element(elem)));
+                    if !VOID_TAGS.contains(&elem.tag.as_str()) {
+                        parent_queue.push(Rc::new(elem));
+                    }
+                }
             } else {
-                let open_tag = parent_queue.last().unwrap().tag;
-                let close_tag = inner_text.split(' ').next().unwrap().get(1..).unwrap().to_string();
+                let open_tag = &parent_queue.last().unwrap().tag;
+                let close_tag = &inner_text.split(' ').next().unwrap().get(1..).unwrap().to_string();
                 if open_tag == close_tag {
                     panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
                         open_tag, close_tag);
@@ -394,11 +371,15 @@ fn parse(body: String) -> Node {
         }
     }
 
-    if !in_tag && !inner_text.is_empty() {
-        // create_text((*tag_queue.last().unwrap()).as_mut(), inner_text);
+    if in_tag {
+        panic!("Invalid HTML: EOF in tag!")
     }
 
-    return Node::Element(*root);
+    if let Some(text) = Text::new(inner_text) {
+        parent_queue.last().unwrap().add_child(Rc::new(Node::Text(text)));
+    }
+
+    return root;
 }
 
 fn main() {
