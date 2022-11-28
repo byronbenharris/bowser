@@ -222,11 +222,11 @@ fn load(url: &String) -> impl Widget<()> {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
             let root = parse(&body_str.to_string());
             print_tree(&Rc::clone(&root), 0);
-            // let body_widgets = recurse(
-            //     &Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
-            // for widget in body_widgets {
-            //     col.add_child(widget);
-            // }
+            let body_widgets = recurse(
+                &Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
+            for widget in body_widgets {
+                col.add_child(widget);
+            }
         },
         "image/png" => {
             let img_data =
@@ -271,33 +271,25 @@ fn label(text: &String, style: &Style) -> impl Widget<()> {
     return label;
 }
 
-// fn recurse(node: &Rc<Node>, style: &Style) -> Vec<impl Widget<()>> {
-//     // let mut body = Vec::new();
-//     // for child in &*node.children.borrow() {
-//     //     for label in recurse(&Rc::clone(&child), &style) {
-//     //         body.push(label);
-//     //     }
-//     // }
-//     // return body;
-
-//     // match &node.borrow().data {
-//     //     Data::Text(text) => {
-//     //         let mut body = Vec::new();
-//     //         body.push(label(&text.text, style)); 
-//     //         return body;
-//     //     },
-//     //     Data::Element(elem) => { 
-//     //         let style = open_tag(&elem.tag, style);
-//     //         let mut body = Vec::new();
-//     //         for child in (*node.borrow()).children {
-//     //             for label in recurse(Rc::clone(child), &style) {
-//     //                 body.push(label);
-//     //             }
-//     //         }
-//     //         return body;
-//     //     }
-//     // }
-// }
+fn recurse(node: &Rc<RefCell<Node>>, style: &Style) -> Vec<impl Widget<()>> {
+    match &node.borrow().data {
+        Data::Text(text) => {
+            let mut body = Vec::new();
+            body.push(label(&text.text, style)); 
+            return body;
+        },
+        Data::Element(elem) => { 
+            let style = open_tag(&elem.tag, style);
+            let mut body = Vec::new();
+            for child in &*node.borrow().children.borrow() {
+                for label in recurse(&Rc::clone(child), &style) {
+                    body.push(label);
+                }
+            }
+            return body;
+        }
+    }    
+}
 
 fn get_attributes(text: String) -> (String, HashMap<String, String>) {
     
