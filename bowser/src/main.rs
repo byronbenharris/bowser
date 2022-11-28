@@ -27,52 +27,63 @@ use std::{env, vec};
 use std::{fs, str};
 use std::rc::Rc;
 
+use bowser::html::{DOMNode, Data, print_dom, parse};
+
+
+// class DocumentLayout:
+//     def __init__(self, node):
+//         self.node = node
+//         self.parent = None
+//         self.children = []
+
+//     def layout(self):
+//         child = BlockLayout(self.node, self, None)
+//         self.children.append(child)
+//         child.layout()
+
+// class BlockLayout:
+//     def __init__(self, node, parent, previous):
+//         self.node = node
+//         self.parent = parent
+//         self.previous = previous
+//         self.children = []
+
+//     def layout(self):
+//         previous = None
+//         for child in self.node.children:
+//             if layout_mode(child) == "inline":
+//                 next = InlineLayout(child, self, previous)
+//             else:
+//                 next = BlockLayout(child, self, previous)
+//             self.children.append(next)
+//             previous = next
+//         for child in self.children:
+//             child.layout()
+
+// class InlineLayout:
+//     def __init__(self, node, parent, previous):
+//         self.node = node
+//         self.parent = parent
+//         self.previous = previous
+//         self.children = []
+
+// def layout_mode(node):
+//     if isinstance(node, Text):
+//         return "inline"
+//     elif node.children:
+//         for child in node.children:
+//             if isinstance(child, Text): continue
+//             if child.tag in BLOCK_ELEMENTS:
+//                 return "block"
+//         return "inline"
+//     else:
+//         return "block"
+
 #[derive(Debug)]
-struct Node {
-    data: Data,
-    children: RefCell<Vec<Rc<RefCell<Node>>>>
-}
-
-impl Node {
-    fn new(data: Data) -> Node {
-        return Node { data, children: RefCell::new(vec!()) };
-    }
-
-    fn add_child(&mut self, child: &Rc<RefCell<Node>>) {
-        self.children.borrow_mut().push(Rc::clone(&child));
-    }
-}
-
-#[derive(Debug)]
-enum Data {
-    Text(Text),
-    Element(Element),
-}
-
-#[derive(Debug)]
-struct Element {
-    tag: String,
-    attributes: HashMap<String, String>,
-}
-
-impl Element {
-    fn new(tag: String) -> Option<Element> {
-        if tag.starts_with("!") { return None; }
-        let (tag, attributes) = get_attributes(tag);
-        return Some(Element { tag, attributes });
-    }
-}
-
-#[derive(Debug)]
-struct Text {
-    text: String,
-}
-
-impl Text {
-    fn new(text: String) -> Option<Text> {
-        if text.trim().is_empty() { return None; }
-        return Some(Text { text });
-    }
+struct LayoutNode {
+    node: DOMNode,
+    inline: bool,
+    children: RefCell<Vec<Rc<LayoutNode>>>,
 }
 
 #[derive(Debug)]
@@ -81,11 +92,6 @@ struct Style {
     bold: bool, 
     italic: bool,
 }
-
-const VOID_TAGS: [&str; 14] = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr"
-];
 
 const BLOCK_ELEMENTS: [&str; 37] = [
     "html", "body", "article", "section", "nav", "aside",
@@ -220,10 +226,12 @@ fn load(url: &String) -> impl Widget<()> {
     match content_type {
         "text/html" => {
             let body_str = str::from_utf8(&body).expect("Failed to convert [u8] to string");
-            let root = parse(&body_str.to_string());
-            print_tree(&Rc::clone(&root), 0);
+            let dom_root = parse(&body_str.to_string());
+            print_dom(&Rc::clone(&dom_root), 0);
+            // let layout_root = parse_layout(&Rc::clone(&dom_root), &Style { size: 16.0, bold: false, italic: false });
+            // draw_layout(&Rc::clone(&layout_root));
             let body_widgets = recurse(
-                &Rc::clone(&root), &Style { size: 16.0, bold: false, italic: false });
+                &Rc::clone(&dom_root), &Style { size: 16.0, bold: false, italic: false });
             for widget in body_widgets {
                 col.add_child(widget);
             }
@@ -271,7 +279,11 @@ fn label(text: &String, style: &Style) -> impl Widget<()> {
     return label;
 }
 
-fn recurse(node: &Rc<RefCell<Node>>, style: &Style) -> Vec<impl Widget<()>> {
+// fn parse_layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> LayoutNode {
+
+// }
+
+fn recurse(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Vec<impl Widget<()>> {
     match &node.borrow().data {
         Data::Text(text) => {
             let mut body = Vec::new();
@@ -289,120 +301,6 @@ fn recurse(node: &Rc<RefCell<Node>>, style: &Style) -> Vec<impl Widget<()>> {
             return body;
         }
     }    
-}
-
-fn get_attributes(text: String) -> (String, HashMap<String, String>) {
-    
-    let mut parts = text.split(char::is_whitespace);
-    let tag = parts.next().unwrap().to_lowercase();
-    
-    let mut attributes = HashMap::new();
-    while let Some(attr_pair) = parts.next() {
-        if attr_pair.contains("=") {
-            
-            let mut attr_split = attr_pair.splitn(1, "=");
-            let key = attr_split.next().unwrap().to_string();
-            let mut value = attr_split.next().unwrap().to_string();
-            
-            if value.len() > 2 && 
-                (value.starts_with("'") || value.starts_with("\"")) {
-                    value = value[1..value.len()-1].to_owned();
-            }
-            
-            attributes.insert(key.to_lowercase(), value);
-        
-        } else {
-            attributes.insert(attr_pair.to_lowercase(), String::new());
-        }
-    }
-
-    return (tag, attributes);
-}
-
-fn print_indent(indent: i32) {
-    for _ in 0..indent { print!(" "); }
-}
-
-fn print_tree(node: &Rc<RefCell<Node>>, indent: i32) {
-    print_indent(indent);
-    match &node.borrow().data {
-        Data::Text(text) => { 
-            println!("{}", text.text);
-        },
-        Data::Element(elem) => { 
-            println!("<{}>", elem.tag);
-            for child in &*node.borrow().children.borrow() {
-                print_tree(child, indent + 2);
-            }
-            print_indent(indent);
-            println!("</{}>", elem.tag);
-        }
-    }
-}
-
-fn parse(body: &String) -> Rc<RefCell<Node>> {
-
-    let root = Node::new(Data::Element(Element::new(String::from("html")).unwrap()));
-    let root_ptr = Rc::new(RefCell::new(root));
-    let mut parent_stack:Vec<Rc<RefCell<Node>>> = Vec::new();
-    parent_stack.push(Rc::clone(&root_ptr));
-
-    let mut in_tag = false;
-    let mut inner_text = String::new();
-    for c in body.chars() {
-        if c == '<' {
-            if let Some(text) = Text::new(inner_text) {
-                let node = Node::new(Data::Text(text));
-                parent_stack.last().unwrap().borrow_mut().add_child(&Rc::new(RefCell::new(node)));
-            }
-            in_tag = true;
-            inner_text = String::new();
-        } else if c == '>' {
-            if !inner_text.starts_with("/") {
-
-                if let Some(elem) = Element::new(inner_text) {
-                    let node = Node::new(Data::Element(elem));
-                    let node_ptr = Rc::new(RefCell::new(node));
-                    let parent = parent_stack.last().unwrap();
-                    parent.borrow_mut().add_child(&Rc::clone(&node_ptr));
-                    parent_stack.push(Rc::clone(&node_ptr));
-                    // if !VOID_TAGS.contains(&elem.tag.as_str()) {
-                    //     parent_stack.push(Rc::clone(&node_ptr));
-                    // }
-                }
-            } else {
-                {
-                    let parent = parent_stack.last().unwrap().borrow();
-                    if let Some(open_tag) = match &parent.data {
-                        Data::Text(_) => None,
-                        Data::Element(elem) => Some(elem.tag.as_str()),
-                    } {
-                        let close_tag = inner_text.split(' ').next().unwrap().get(1..).unwrap();
-                        if open_tag != close_tag {
-                            panic!("Invalid closing tag in parsing: {} (open) != {} (close)", 
-                                open_tag, close_tag);
-                        }
-                    }
-                }         
-                parent_stack.pop();
-            }
-            in_tag = false;
-            inner_text = String::new();
-        } else {
-            inner_text.push(c);
-        }
-    }
-
-    if in_tag {
-        panic!("Invalid HTML: EOF in tag!")
-    }
-
-    if let Some(text) = Text::new(inner_text) {
-        let node = Node::new(Data::Text(text));
-        parent_stack.last().unwrap().borrow_mut().add_child(&Rc::new(RefCell::new(node)));
-    }
-
-    return root_ptr;
 }
 
 fn main() {
