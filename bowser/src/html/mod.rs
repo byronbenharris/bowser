@@ -4,10 +4,10 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::vec;
 
-// const VOID_TAGS: [&str; 14] = [
-//     "area", "base", "br", "col", "embed", "hr", "img", "input",
-//     "link", "meta", "param", "source", "track", "wbr"
-// ];
+const VOID_TAGS: [&str; 14] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr"
+];
 
 #[derive(Debug)]
 pub struct DOMNode {
@@ -68,9 +68,9 @@ fn get_attributes(text: String) -> (String, HashMap<String, String>) {
             
             let mut attr_split = attr_pair.splitn(1, "=");
             let key = attr_split.next().unwrap().to_string();
-            let mut value = attr_split.next().unwrap().to_string();
+            let mut value = attr_split.next().unwrap_or("").to_string();
             
-            if value.len() > 2 && 
+            if value.len() > 2 &&
                 (value.starts_with("'") || value.starts_with("\"")) {
                     value = value[1..value.len()-1].to_owned();
             }
@@ -87,7 +87,7 @@ fn get_attributes(text: String) -> (String, HashMap<String, String>) {
 
 pub fn parse(body: &String) -> Rc<RefCell<DOMNode>> {
 
-    let root = DOMNode::new(Data::Element(Element::new(String::from("html")).unwrap()));
+    let root = DOMNode::new(Data::Element(Element::new(String::from("bowser")).unwrap()));
     let root_ptr = Rc::new(RefCell::new(root));
     let mut parent_stack:Vec<Rc<RefCell<DOMNode>>> = Vec::new();
     parent_stack.push(Rc::clone(&root_ptr));
@@ -104,17 +104,15 @@ pub fn parse(body: &String) -> Rc<RefCell<DOMNode>> {
             inner_text = String::new();
         } else if c == '>' {
             if !inner_text.starts_with("/") {
-
                 if let Some(elem) = Element::new(inner_text) {
+                    let not_void = !VOID_TAGS.contains(&elem.tag.as_str());
                     let node = DOMNode::new(Data::Element(elem));
                     let node_ptr = Rc::new(RefCell::new(node));
                     let parent = parent_stack.last().unwrap();
                     parent.borrow_mut().add_child(&Rc::clone(&node_ptr));
-                    parent_stack.push(Rc::clone(&node_ptr));
-                    // TODO: CHECK FOR VOID TAGS
-                    // if !VOID_TAGS.contains(&elem.tag.as_str()) {
-                    //     parent_stack.push(Rc::clone(&node_ptr));
-                    // }
+                    if not_void {
+                        parent_stack.push(Rc::clone(&node_ptr));
+                    }
                 }
             } else {
                 {
@@ -161,13 +159,16 @@ pub fn print_dom(node: &Rc<RefCell<DOMNode>>, indent: i32) {
         Data::Text(text) => { 
             println!("{}", text.text);
         },
-        Data::Element(elem) => { 
+        Data::Element(elem) => {
+            let not_void = !VOID_TAGS.contains(&elem.tag.as_str());
             println!("<{}>", elem.tag);
             for child in &*node.borrow().children.borrow() {
                 print_dom(child, indent + 2);
             }
-            print_indent(indent);
-            println!("</{}>", elem.tag);
+            if not_void {
+                print_indent(indent);
+                println!("</{}>", elem.tag);
+            }
         }
     }
 }

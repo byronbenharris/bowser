@@ -1,4 +1,4 @@
-use druid::widget::Label;
+use druid::widget::{Label, Flex};
 use druid::{FontDescriptor, FontFamily, FontWeight, FontStyle, Widget};
 use std::cell::RefCell;
 use std::str;
@@ -102,7 +102,6 @@ pub fn layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Rc<LayoutNode> {
     //     layout(child, style);
     // }
 
-
     // match &node.borrow().data {
     //     Data::Text(text) => { 
     //         println!("{}", text.text);
@@ -118,7 +117,14 @@ pub fn layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Rc<LayoutNode> {
     // }
 }
 
-pub fn render(node: &Rc<LayoutNode>) { }
+pub fn render_page(node: &Rc<LayoutNode>) -> Flex<()> {
+
+    return Flex::column().with_child(render(node));
+}
+
+pub fn render(node: &Rc<LayoutNode>) -> impl Widget<()> {
+    return Label::new("Unknown content type");
+}
 
 // class DocumentLayout:
 //     def __init__(self, node):
