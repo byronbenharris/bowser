@@ -5,8 +5,20 @@ use std::cell::RefCell;
 use std::vec;
 
 const VOID_TAGS: [&str; 14] = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr"
+    "area", 
+    "base", 
+    "br", 
+    "col", 
+    "embed", 
+    "hr", 
+    "img", 
+    "input",
+    "link", 
+    "meta", 
+    "param", 
+    "source", 
+    "track", 
+    "wbr"
 ];
 
 #[derive(Debug)]
