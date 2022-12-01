@@ -9,10 +9,6 @@ use bowser::html::{parse, print_dom};
 use bowser::layout::{recurse, AppState, Style};
 use bowser::request::request;
 
-// running the endokernel in rust is hard
-// if our final result is we failed to do so...
-// is that okay if we describe what we tried
-
 fn load(url: &String) -> impl Widget<AppState> {
     let (headers, body) = request(url);
     assert!(headers.contains_key("content-type"));
@@ -51,23 +47,26 @@ fn load(url: &String) -> impl Widget<AppState> {
 }
 
 fn build_root_widget() -> impl Widget<AppState> {
-    Flex::column()
+    return Flex::row()
         .cross_axis_alignment(druid::widget::CrossAxisAlignment::Start)
         .with_child(
-            Button::new("Go").on_click(|ctx, state: &mut AppState, env| {
-                let page = load(&state.url);
-                ctx.new_sub_window(
-                    WindowConfig::default()
-                        .show_titlebar(false)
-                        .window_size(Size::new(200., 200.))
-                        .set_level(WindowLevel::AppWindow),
-                    page,
-                    state.clone(),
-                    env.clone(),
-                );
-            }),
-        )
-        .with_child(TextBox::new().lens(AppState::url))
+            Flex::row()
+                .with_child(TextBox::new().lens(AppState::url))
+                .with_child(
+                    Button::new("Go").on_click(|ctx, state: &mut AppState, env| {
+                        let page = load(&state.url);
+                        ctx.new_sub_window(
+                            WindowConfig::default()
+                                .show_titlebar(false)
+                                .window_size(Size::new(400., 400.))
+                                .set_level(WindowLevel::AppWindow),
+                            page,
+                            state.clone(),
+                            env.clone(),
+                        );
+                    }),
+                )
+        );
 }
 
 fn main() {
@@ -80,7 +79,9 @@ fn main() {
     let state = AppState { url };
 
     // let window = WindowDesc::new(load(url)).title(String::from("Bowser"));
-    let window = WindowDesc::new(build_root_widget()).title(String::from("Bowser"));
+    let window = WindowDesc::new(
+        build_root_widget()).title(String::from("Bowser")
+    );
     AppLauncher::with_window(window)
         .launch(state)
         .expect("failed to launch gui");
