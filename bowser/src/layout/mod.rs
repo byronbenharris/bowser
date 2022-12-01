@@ -1,10 +1,15 @@
-use druid::widget::{Label, Flex};
-use druid::{FontDescriptor, FontFamily, FontWeight, FontStyle, Widget};
+use druid::widget::{Flex, Label};
+use druid::{Data as DruidData, FontDescriptor, FontFamily, FontStyle, FontWeight, Lens, Widget};
 use std::cell::RefCell;
-use std::str;
 use std::rc::Rc;
+use std::str;
 
 use crate::html::{DOMNode, Data};
+
+#[derive(Clone, DruidData, Lens)]
+pub struct AppState {
+    pub url: String,
+}
 
 #[derive(Debug)]
 pub struct LayoutNode {
@@ -15,34 +20,73 @@ pub struct LayoutNode {
 
 impl LayoutNode {
     fn new(node: &Rc<RefCell<DOMNode>>, inline: bool) -> LayoutNode {
-        return LayoutNode { node: Rc::clone(node), inline, children: RefCell::new(vec!()) };
+        return LayoutNode {
+            node: Rc::clone(node),
+            inline,
+            children: RefCell::new(vec![]),
+        };
     }
 
-    fn add_child(&mut self, child: &Rc<LayoutNode>) {
-        self.children.borrow_mut().push(Rc::clone(&child));
-    }
+    // fn add_child(&mut self, child: &Rc<LayoutNode>) {
+    //     self.children.borrow_mut().push(Rc::clone(&child));
+    // }
 }
 
 #[derive(Debug)]
 pub struct Style {
-    size: f64, 
-    bold: bool, 
+    size: f64,
+    bold: bool,
     italic: bool,
 }
 
 impl Style {
     pub fn new() -> Style {
-        return Style { size: 16.0, bold: false, italic: false };
+        return Style {
+            size: 16.0,
+            bold: false,
+            italic: false,
+        };
     }
 }
 
-const BLOCK_ELEMENTS: [&str; 37] = [
-    "html", "body", "article", "section", "nav", "aside",
-    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
-    "footer", "address", "p", "hr", "pre", "blockquote",
-    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
-    "figcaption", "main", "div", "table", "form", "fieldset",
-    "legend", "details", "summary"
+const _BLOCK_ELEMENTS: [&str; 37] = [
+    "html",
+    "body",
+    "article",
+    "section",
+    "nav",
+    "aside",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hgroup",
+    "header",
+    "footer",
+    "address",
+    "p",
+    "hr",
+    "pre",
+    "blockquote",
+    "ol",
+    "ul",
+    "menu",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+    "main",
+    "div",
+    "table",
+    "form",
+    "fieldset",
+    "legend",
+    "details",
+    "summary",
 ];
 
 fn get_font(style: &Style) -> FontDescriptor {
@@ -60,29 +104,51 @@ fn get_font(style: &Style) -> FontDescriptor {
 
 fn open_tag(tag: &String, style: &Style) -> Style {
     match tag.as_str() {
-        "b" => { return Style { bold: true, ..(*style) } },
-        "i" => { return Style { italic: true, ..(*style) } },
-        "bigger" => { return Style { size: style.size + 2.0, ..(*style) } },
-        "smaller" => { return Style { size: style.size - 2.0, ..(*style) } },
-        _ => { return Style{ ..(*style) }; }
+        "b" => {
+            return Style {
+                bold: true,
+                ..(*style)
+            }
+        }
+        "i" => {
+            return Style {
+                italic: true,
+                ..(*style)
+            }
+        }
+        "bigger" => {
+            return Style {
+                size: style.size + 2.0,
+                ..(*style)
+            }
+        }
+        "smaller" => {
+            return Style {
+                size: style.size - 2.0,
+                ..(*style)
+            }
+        }
+        _ => {
+            return Style { ..(*style) };
+        }
     }
 }
 
-fn label(text: &String, style: &Style) -> impl Widget<()> {
+fn label(text: &String, style: &Style) -> impl Widget<AppState> {
     let font = get_font(style);
     let mut label = Label::new(text.as_str()).with_font(font);
     label.set_line_break_mode(druid::widget::LineBreaking::WordWrap);
     return label;
 }
 
-pub fn recurse(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Vec<impl Widget<()>> {
+pub fn recurse(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Vec<impl Widget<AppState>> {
     match &node.borrow().data {
         Data::Text(text) => {
             let mut body = Vec::new();
-            body.push(label(&text.text, style)); 
+            body.push(label(&text.text, style));
             return body;
-        },
-        Data::Element(elem) => { 
+        }
+        Data::Element(elem) => {
             let style = open_tag(&elem.tag, style);
             let mut body = Vec::new();
             for child in &*node.borrow().children.borrow() {
@@ -92,10 +158,10 @@ pub fn recurse(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Vec<impl Widget<()
             }
             return body;
         }
-    }    
+    }
 }
 
-pub fn layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Rc<LayoutNode> {
+pub fn layout(node: &Rc<RefCell<DOMNode>>, _style: &Style) -> Rc<LayoutNode> {
     return Rc::new(LayoutNode::new(node, false));
 
     // for child in &*node.borrow().children.borrow() {
@@ -103,10 +169,10 @@ pub fn layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Rc<LayoutNode> {
     // }
 
     // match &node.borrow().data {
-    //     Data::Text(text) => { 
+    //     Data::Text(text) => {
     //         println!("{}", text.text);
     //     },
-    //     Data::Element(elem) => { 
+    //     Data::Element(elem) => {
     //         println!("<{}>", elem.tag);
     //         for child in &*node.borrow().children.borrow() {
     //             print_dom(child, indent + 2);
@@ -118,11 +184,10 @@ pub fn layout(node: &Rc<RefCell<DOMNode>>, style: &Style) -> Rc<LayoutNode> {
 }
 
 pub fn render_page(node: &Rc<LayoutNode>) -> Flex<()> {
-
     return Flex::column().with_child(render(node));
 }
 
-pub fn render(node: &Rc<LayoutNode>) -> impl Widget<()> {
+pub fn render(_node: &Rc<LayoutNode>) -> impl Widget<()> {
     return Label::new("Unknown content type");
 }
 
