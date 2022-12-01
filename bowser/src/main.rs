@@ -72,8 +72,12 @@ fn build_root_widget() -> impl Widget<AppState> {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let url = &args[1];
-    let state = AppState { url: url.into() };
+    let url = if args.len() <= 1 {
+        String::from("")
+    } else {
+        args[1].to_string()
+    };
+    let state = AppState { url };
 
     // let window = WindowDesc::new(load(url)).title(String::from("Bowser"));
     let window = WindowDesc::new(build_root_widget()).title(String::from("Bowser"));
