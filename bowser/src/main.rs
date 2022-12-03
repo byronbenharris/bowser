@@ -1,8 +1,8 @@
 use druid::piet::InterpolationMode;
-use druid::widget::{prelude::*, Button, FillStrat, Flex, Image, Label, Scroll, TextBox};
+use druid::widget::{prelude::*, Button, FillStrat, Flex, Image, Label, Scroll, TextBox, LabelText};
 use druid::{AppLauncher, ImageBuf, Widget, WidgetExt, WindowConfig, WindowDesc, WindowLevel};
 use std::rc::Rc;
-use std::{env, str};
+use std::{env, str, fs};
 // use std::sync::Arc;
 
 use bowser::html::{parse, print_dom};
@@ -47,18 +47,36 @@ fn load(url: &String) -> impl Widget<AppState> {
 }
 
 fn build_root_widget() -> impl Widget<AppState> {
-    return Flex::row()
+    let img_buf = fs::read("bowser.png").expect("Failed to read contents of file");
+    let img_data = ImageBuf::from_data(&img_buf).expect("Failed to store bytes in image buffer");
+    return Flex::column()
+        .with_default_spacer()
         .cross_axis_alignment(druid::widget::CrossAxisAlignment::Start)
         .with_child(
+            Image::new(img_data)
+                .fill_mode(FillStrat::Fill)
+                .interpolation_mode(InterpolationMode::Bilinear)
+                .fix_size(300., 300.)
+                .center()
+        )
+        .with_default_spacer()
+        .with_child(
+            Label::new("Welcome to Bowser!")
+            .center()
+        )
+        .with_default_spacer()
+        .with_child(
             Flex::row()
-                .with_child(TextBox::new().lens(AppState::url))
+                .with_child(
+                    TextBox::new().lens(AppState::url)
+                )
                 .with_child(
                     Button::new("Go").on_click(|ctx, state: &mut AppState, env| {
                         let page = load(&state.url);
                         ctx.new_sub_window(
                             WindowConfig::default()
                                 .show_titlebar(false)
-                                .window_size(Size::new(400., 400.))
+                                .window_size(Size::new(500., 500.))
                                 .set_level(WindowLevel::AppWindow),
                             page,
                             state.clone(),
@@ -66,6 +84,7 @@ fn build_root_widget() -> impl Widget<AppState> {
                         );
                     }),
                 )
+                .center()
         );
 }
 
@@ -76,9 +95,8 @@ fn main() {
     } else {
         args[1].to_string()
     };
-    let state = AppState { url };
 
-    // let window = WindowDesc::new(load(url)).title(String::from("Bowser"));
+    let state = AppState { url };
     let window = WindowDesc::new(
         build_root_widget()).title(String::from("Bowser")
     );
