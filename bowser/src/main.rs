@@ -26,7 +26,6 @@ fn load(url: &String) -> impl Widget<AppState> {
             print_dom(&Rc::clone(&dom_root), 0);
             // let layout_root = layout(&Rc::clone(&dom_root), &Style::new());
             // render_page(&Rc::clone(&layout_root))
-            // col.add_child(TextBox::new().with_placeholder(*url).lens(State::url));
             let body_widgets = recurse(&Rc::clone(&dom_root), &Style::new());
             for widget in body_widgets {
                 col.add_child(widget);

@@ -1,5 +1,3 @@
-# Bowser "Nom Nom Nom"
-
-A simple, easy-to-read toy browser intended for experimentation and benchmarking
+# "Nom Nom Nom"
 
 ![bowser](bowser.png)
