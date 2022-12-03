@@ -1,5 +1,5 @@
 use druid::piet::InterpolationMode;
-use druid::widget::{prelude::*, Button, FillStrat, Flex, Image, Label, Scroll, TextBox, LabelText};
+use druid::widget::{prelude::*, Button, FillStrat, Flex, Image, Label, Scroll, TextBox};
 use druid::{AppLauncher, ImageBuf, Widget, WidgetExt, WindowConfig, WindowDesc, WindowLevel};
 use std::rc::Rc;
 use std::{env, str, fs};
